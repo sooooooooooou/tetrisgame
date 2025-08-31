@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tetris Game</title>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background-color: #000;
+        }
+        
+        .game-cell {
+            width: 24px;
+            height: 24px;
+            border: 1px solid #374151;
+            display: inline-block;
+        }
+        
+        .game-board {
+            display: inline-block;
+            background-color: #111827;
+            padding: 16px;
+            border: 4px solid #374151;
+        }
+        
+        .game-row {
+            display: block;
+            height: 26px;
+            margin: 1px 0;
+        }
+        
+        .preview-cell {
+            width: 16px;
+            height: 16px;
+            border: 1px solid #4b5563;
+            display: inline-block;
+        }
+        
+        .preview-row {
+            display: block;
+            height: 18px;
+            margin: 1px 0;
+        }
+        
+        .main-container {
+            min-height: 100vh;
+            background-color: #000;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        
+        .game-layout {
+            display: flex;
+            gap: 32px;
+            align-items: flex-start;
+        }
+        
+        .game-area {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .side-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+        
+        .info-panel {
+            background-color: #1f2937;
+            padding: 16px;
+            border-radius: 8px;
+            min-width: 120px;
+        }
+        
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.75);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .start-screen {
+            text-align: center;
+        }
+        
+        .title {
+            font-size: 4rem;
+            font-weight: bold;
+            margin-bottom: 32px;
+            color: #60a5fa;
+        }
+        
+        .subtitle {
+            font-size: 3rem;
+            font-weight: bold;
+            margin-bottom: 16px;
+            color: #60a5fa;
+        }
+        
+        .instructions {
+            margin-bottom: 32px;
+        }
+        
+        .btn {
+            background-color: #2563eb;
+            color: white;
+            padding: 16px 32px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.25rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .btn:hover {
+            background-color: #1d4ed8;
+        }
+        
+        .btn-red {
+            background-color: #dc2626;
+        }
+        
+        .btn-red:hover {
+            background-color: #b91c1c;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script>
+        // Reactが読み込まれているか確認
+        console.log('React loaded:', typeof React !== 'undefined');
+        console.log('ReactDOM loaded:', typeof ReactDOM !== 'undefined');
+        
+        const { useState, useEffect, useCallback, useRef, createElement: e } = React;
+
+        const BOARD_WIDTH = 10;
+        const BOARD_HEIGHT = 20;
+        const PREVIEW_SIZE = 4;
+
+        // テトリミノの定義
+        const TETROMINOS = {
+          I: {
+            shape: [
+              [0, 0, 0, 0],
+              [1, 1, 1, 1],
+              [0, 0, 0, 0],
+              [0, 0, 0, 0]
+            ],
+            color: '#00f0f0'
+          },
+          O: {
+            shape: [
+              [1, 1],
+              [1, 1]
+            ],
+            color: '#f0f000'
+          },
+          T: {
+            shape: [
+              [0, 1, 0],
+              [1, 1, 1],
+              [0, 0, 0]
+            ],
+            color: '#a000f0'
+          },
+          S: {
+            shape: [
+              [0, 1, 1],
+              [1, 1, 0],
+              [0, 0, 0]
+            ],
+            color: '#00f000'
+          },
+          Z: {
+            shape: [
+              [1, 1, 0],
+              [0, 1, 1],
+              [0, 0, 0]
+            ],
+            color: '#f00000'
+          },
+          J: {
+            shape: [
+              [1, 0, 0],
+              [1, 1, 1],
+              [0, 0, 0]
+            ],
+            color: '#0000f0'
+          },
+          L: {
+            shape: [
+              [0, 0, 1],
+              [1, 1, 1],
+              [0, 0, 0]
+            ],
+            color: '#f0a000'
+          }
+        };
+
+        const TETROMINO_KEYS = Object.keys(TETROMINOS);
+
+        const createEmptyBoard = () => 
+          Array(BOARD_HEIGHT).fill(null).map(() => Array(BOARD_WIDTH).fill(0));
+
+        const rotatePiece = (piece) => {
+          const rotated = piece[0].map((_, index) =>
+            piece.map(row => row[index]).reverse()
+          );
+          return rotated;
+        };
+
+        const isValidMove = (board, piece, x, y) => {
+          for (let py = 0; py < piece.length; py++) {
+            for (let px = 0; px < piece[py].length; px++) {
+              if (piece[py][px]) {
+                const newX = x + px;
+                const newY = y + py;
+                
+                if (newX < 0 || newX >= BOARD_WIDTH || newY >= BOARD_HEIGHT) {
+                  return false;
+                }
+                
+                if (newY >= 0 && board[newY][newX]) {
+                  return false;
+                }
+              }
+            }
+          }
+          return true;
+        };
+
+        const placePiece = (board, piece, x, y, color) => {
+          const newBoard = board.map(row => [...row]);
+          
+          for (let py = 0; py < piece.length; py++) {
+            for (let px = 0; px < piece[py].length; px++) {
+              if (piece[py][px]) {
+                const newX = x + px;
+                const newY = y + py;
+                if (newY >= 0 && newY < BOARD_HEIGHT && newX >= 0 && newX < BOARD_WIDTH) {
+                  newBoard[newY][newX] = color;
+                }
+              }
+            }
+          }
+          
+          return newBoard;
+        };
+
+        const clearLines = (board) => {
+          const newBoard = board.filter(row => row.some(cell => !cell));
+          const linesCleared = BOARD_HEIGHT - newBoard.length;
+          
+          for (let i = 0; i < linesCleared; i++) {
+            newBoard.unshift(Array(BOARD_WIDTH).fill(0));
+          }
+          
+          return { board: newBoard, linesCleared };
+        };
+
+        const getRandomTetromino = () => {
+          const key = TETROMINO_KEYS[Math.floor(Math.random() * TETROMINO_KEYS.length)];
+          return { ...TETROMINOS[key], type: key };
+        };
+
+        const calculateScore = (level, linesCleared) => {
+          const baseScores = [0, 40, 100, 300, 1200];
+          return baseScores[linesCleared] * (level + 1);
+        };
+
+        const getLevel = (totalLines) => Math.floor(totalLines / 10);
+
+        const getDropSpeed = (level) => Math.max(50, 1000 - (level * 100));
+
+        const Tetris = () => {
+          const [gameState, setGameState] = useState('start');
+          const [board, setBoard] = useState(createEmptyBoard());
+          const [currentPiece, setCurrentPiece] = useState(null);
+          const [currentPosition, setCurrentPosition] = useState({ x: 4, y: 0 });
+          const [nextPiece, setNextPiece] = useState(null);
+          const [score, setScore] = useState(0);
+          const [lines, setLines] = useState(0);
+          const [level, setLevel] = useState(0);
+          const [dropTime, setDropTime] = useState(1000);
+          
+          const gameLoopRef = useRef();
+          const lastDropTimeRef = useRef(0);
+
+          const generateNewPiece = useCallback(() => {
+            const piece = nextPiece || getRandomTetromino();
+            const newNext = getRandomTetromino();
+            
+            setCurrentPiece(piece);
+            setCurrentPosition({ x: 4, y: 0 });
+            setNextPiece(newNext);
+            
+            if (!isValidMove(board, piece.shape, 4, 0)) {
+              setGameState('gameover');
+              return false;
+            }
+            
+            return true;
+          }, [board, nextPiece]);
+
+          const dropPiece = useCallback(() => {
+            if (!currentPiece || gameState !== 'playing') return;
+
+            const newY = currentPosition.y + 1;
+            
+            if (isValidMove(board, currentPiece.shape, currentPosition.x, newY)) {
+              setCurrentPosition(prev => ({ ...prev, y: newY }));
+            } else {
+              const newBoard = placePiece(board, currentPiece.shape, currentPosition.x, currentPosition.y, currentPiece.color);
+              const { board: clearedBoard, linesCleared } = clearLines(newBoard);
+              
+              setBoard(clearedBoard);
+              
+              if (linesCleared > 0) {
+                const newTotalLines = lines + linesCleared;
+                const newLevel = getLevel(newTotalLines);
+                const newScore = score + calculateScore(level, linesCleared);
+                
+                setLines(newTotalLines);
+                setLevel(newLevel);
+                setScore(newScore);
+                setDropTime(getDropSpeed(newLevel));
+              }
+              
+              generateNewPiece();
+            }
+          }, [board, currentPiece, currentPosition, gameState, lines, level, score, generateNewPiece]);
+
+          const gameLoop = useCallback((timestamp) => {
+            if (gameState === 'playing') {
+              if (timestamp - lastDropTimeRef.current > dropTime) {
+                dropPiece();
+                lastDropTimeRef.current = timestamp;
+              }
+              gameLoopRef.current = requestAnimationFrame(gameLoop);
+            }
+          }, [gameState, dropTime, dropPiece]);
+
+          const handleKeyPress = useCallback((e) => {
+            if (gameState !== 'playing' || !currentPiece) return;
+
+            switch (e.key) {
+              case 'ArrowLeft':
+                e.preventDefault();
+                if (isValidMove(board, currentPiece.shape, currentPosition.x - 1, currentPosition.y)) {
+                  setCurrentPosition(prev => ({ ...prev, x: prev.x - 1 }));
+                }
+                break;
+              case 'ArrowRight':
+                e.preventDefault();
+                if (isValidMove(board, currentPiece.shape, currentPosition.x + 1, currentPosition.y)) {
+                  setCurrentPosition(prev => ({ ...prev, x: prev.x + 1 }));
+                }
+                break;
+              case 'ArrowDown':
+                e.preventDefault();
+                dropPiece();
+                break;
+              case 'ArrowUp':
+              case ' ':
+                e.preventDefault();
+                const rotated = rotatePiece(currentPiece.shape);
+                if (isValidMove(board, rotated, currentPosition.x, currentPosition.y)) {
+                  setCurrentPiece(prev => ({ ...prev, shape: rotated }));
+                }
+                break;
+              case 'p':
+              case 'P':
+                e.preventDefault();
+                setGameState(prev => prev === 'playing' ? 'paused' : 'playing');
+                break;
+            }
+          }, [board, currentPiece, currentPosition, gameState, dropPiece]);
+
+          const startGame = () => {
+            setBoard(createEmptyBoard());
+            setScore(0);
+            setLines(0);
+            setLevel(0);
+            setDropTime(1000);
+            setCurrentPiece(getRandomTetromino());
+            setNextPiece(getRandomTetromino());
+            setCurrentPosition({ x: 4, y: 0 });
+            setGameState('playing');
+          };
+
+          const restartGame = () => {
+            setGameState('start');
+          };
+
+          useEffect(() => {
+            window.addEventListener('keydown', handleKeyPress);
+            return () => window.removeEventListener('keydown', handleKeyPress);
+          }, [handleKeyPress]);
+
+          useEffect(() => {
+            if (gameState === 'playing') {
+              lastDropTimeRef.current = performance.now();
+              gameLoopRef.current = requestAnimationFrame(gameLoop);
+            } else {
+              if (gameLoopRef.current) {
+                cancelAnimationFrame(gameLoopRef.current);
+              }
+            }
+
+            return () => {
+              if (gameLoopRef.current) {
+                cancelAnimationFrame(gameLoopRef.current);
+              }
+            };
+          }, [gameState, gameLoop]);
+
+          const renderBoard = () => {
+            let displayBoard = board.map(row => [...row]);
+            
+            if (currentPiece && gameState === 'playing') {
+              displayBoard = placePiece(displayBoard, currentPiece.shape, currentPosition.x, currentPosition.y, currentPiece.color);
+            }
+            
+            return displayBoard;
+          };
+
+          const renderNextPiece = () => {
+            if (!nextPiece) return null;
+            
+            return e('div', { className: 'info-panel' },
+              e('h3', { style: { color: '#fff', fontSize: '14px', marginBottom: '8px' } }, 'NEXT'),
+              e('div', { style: { backgroundColor: '#1f2937', padding: '8px', borderRadius: '4px' } },
+                Array(PREVIEW_SIZE).fill(null).map((_, y) =>
+                  e('div', { key: y, className: 'preview-row' },
+                    Array(PREVIEW_SIZE).fill(null).map((_, x) => {
+                      const cell = nextPiece.shape[y] && nextPiece.shape[y][x];
+                      return e('div', {
+                        key: x,
+                        className: 'preview-cell',
+                        style: {
+                          backgroundColor: cell ? nextPiece.color : 'transparent'
+                        }
+                      });
+                    })
+                  )
+                )
+              )
+            );
+          };
+
+          if (gameState === 'start') {
+            return e('div', { className: 'main-container' },
+              e('div', { className: 'start-screen' },
+                e('h1', { className: 'title' }, 'TETRIS'),
+                e('div', { className: 'instructions' },
+                  e('p', { style: { fontSize: '18px', marginBottom: '8px' } }, '操作方法:'),
+                  e('p', { style: { fontSize: '14px', marginBottom: '4px' } }, '← → : 移動'),
+                  e('p', { style: { fontSize: '14px', marginBottom: '4px' } }, '↓ : 高速落下'),
+                  e('p', { style: { fontSize: '14px', marginBottom: '4px' } }, '↑ / Space : 回転'),
+                  e('p', { style: { fontSize: '14px', marginBottom: '4px' } }, 'P : ポーズ')
+                ),
+                e('button', { onClick: startGame, className: 'btn' }, 'スタート')
+              )
+            );
+          }
+
+          const displayBoard = renderBoard();
+
+          return e('div', { className: 'main-container' },
+            e('div', { className: 'game-layout' },
+              e('div', { className: 'game-area' },
+                e('h1', { className: 'subtitle' }, 'TETRIS'),
+                e('div', { style: { position: 'relative' } },
+                  e('div', { className: 'game-board' },
+                    displayBoard.map((row, y) =>
+                      e('div', { key: y, className: 'game-row' },
+                        row.map((cell, x) =>
+                          e('div', {
+                            key: x,
+                            className: 'game-cell',
+                            style: {
+                              backgroundColor: cell || '#1a1a1a'
+                            }
+                          })
+                        )
+                      )
+                    )
+                  ),
+                  gameState === 'paused' && e('div', { className: 'overlay' },
+                    e('div', { style: { textAlign: 'center' } },
+                      e('h2', { style: { fontSize: '3rem', fontWeight: 'bold', marginBottom: '16px' } }, 'PAUSED'),
+                      e('p', null, 'Pキーで再開')
+                    )
+                  ),
+                  gameState === 'gameover' && e('div', { className: 'overlay' },
+                    e('div', { style: { textAlign: 'center' } },
+                      e('h2', { style: { fontSize: '3rem', fontWeight: 'bold', marginBottom: '16px', color: '#ef4444' } }, 'GAME OVER'),
+                      e('button', { onClick: restartGame, className: 'btn btn-red' }, 'リスタート')
+                    )
+                  )
+                )
+              ),
+              e('div', { className: 'side-panel' },
+                e('div', { className: 'info-panel' },
+                  e('div', { style: { marginBottom: '16px' } },
+                    e('h3', { style: { fontSize: '14px', marginBottom: '4px' } }, 'SCORE'),
+                    e('p', { style: { fontSize: '24px', fontWeight: 'bold' } }, score.toLocaleString())
+                  ),
+                  e('div', { style: { marginBottom: '16px' } },
+                    e('h3', { style: { fontSize: '14px', marginBottom: '4px' } }, 'LINES'),
+                    e('p', { style: { fontSize: '24px', fontWeight: 'bold' } }, lines)
+                  ),
+                  e('div', null,
+                    e('h3', { style: { fontSize: '14px', marginBottom: '4px' } }, 'LEVEL'),
+                    e('p', { style: { fontSize: '24px', fontWeight: 'bold' } }, level)
+                  )
+                ),
+                renderNextPiece(),
+                e('div', { className: 'info-panel' },
+                  e('h3', { style: { marginBottom: '8px' } }, '操作'),
+                  e('div', null,
+                    e('p', { style: { fontSize: '12px', marginBottom: '2px' } }, '← → : 移動'),
+                    e('p', { style: { fontSize: '12px', marginBottom: '2px' } }, '↓ : 高速落下'),
+                    e('p', { style: { fontSize: '12px', marginBottom: '2px' } }, '↑ / Space : 回転'),
+                    e('p', { style: { fontSize: '12px', marginBottom: '2px' } }, 'P : ポーズ')
+                  )
+                )
+              )
+            )
+          );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(e(Tetris));
+    </script>
+</body>
+</html>
